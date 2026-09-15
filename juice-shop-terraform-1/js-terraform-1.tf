@@ -49,6 +49,7 @@ resource "aws_instance" "juice_shop" {
      └─ Private Subnet (当前方案：未使用/不需要)
 */
 
+/************************************* Create Infrastructure *************************************/
 resource "aws_vpc" "js_vpc" {
   cidr_block = "10.0.0.0/16"
 
@@ -82,7 +83,7 @@ resource "aws_internet_gateway" "js_igw" {
 
 }
 
-// Create Public Route Table, Any traffic from the public Subnet to the Internet go to Internet Gateway
+# Create Public Route Table, Any traffic from the public Subnet to the Internet go to Internet Gateway
 resource "aws_route_table" "js_public_rt" {
   vpc_id = aws_vpc.js_vpc.id
 
@@ -141,6 +142,38 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   ip_protocol = "-1"
 }
 
+
+/************************************* Create CloudWatch Agent on EC2 Instance *************************************/
+
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "cwagent_role" {
+  name = "js-cwagent-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "cwagent_server_policy" {
+  role = aws_iam_role.cwagent_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_iam_instance_profile" "cwagent_profile" {
+  name = "js-cwagent-profile"
+  role = aws_iam_role.cwagent_role.name
+}
+
+
+/************************************* Create EC2 Instance *************************************/
+
 data "aws_ssm_parameter" "amazon_linux" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
@@ -156,6 +189,8 @@ resource "aws_instance" "js_ubuntu_ec" {
 
   associate_public_ip_address = true
 
+  iam_instance_profile = aws_iam_instance_profile.cwagent_profile.name
+
   user_data = <<-EOF
               #!/bin/bash
               apt-get update -y
@@ -170,6 +205,27 @@ resource "aws_instance" "js_ubuntu_ec" {
                 --name juice-shop \
                 -p 80:3000 \
                bkimminich/juice-shop
+
+              wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+
+              dpkg -i -E amazon-cloudwatch-agent.deb
+
+              cat << 'CFG' > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+              {
+                "metrics": {
+                  "namespace":"CWAgent",
+                  "metrics_collected": {
+                    "mem":{"measurement":["mem_used_percent"]},
+                    "disk":{"measurement":["used_percent"],
+                            "resources":["/"]}
+                  }
+                }
+              }
+              CFG
+
+              /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                -a fetch-config -m ec2 -s \
+                -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
               EOF
 
   tags = {
@@ -180,7 +236,11 @@ resource "aws_instance" "js_ubuntu_ec" {
 
 }
 
-// Create CloudWatch Log Group
+
+
+/************************************* Create VPC Flow Logs *************************************/
+
+# Create CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "js_vpc_flow_logs_group" {
 
   name = "/aws/js-vpc/js-flow-logs"
@@ -194,7 +254,7 @@ resource "aws_cloudwatch_log_group" "js_vpc_flow_logs_group" {
   }
 }
 
-// Create Role For VPC Flow Logs to write into CloudWatch Logs
+# Create Role For VPC Flow Logs to write into CloudWatch Logs
 resource "aws_iam_role" "js_vpc_flow_log_role" {
   name = "js-vpc-flow-log-role"
 
@@ -210,9 +270,15 @@ resource "aws_iam_role" "js_vpc_flow_log_role" {
       }
     ]
   })
+
+  tags = {
+    Name        = "js-vpc-flow-log-role"
+    Environment = "dev"
+    Project     = "Juice Shop Terraform"
+  }
 }
 
-// Add Role Policy For VPC Flow Logs to write into CloudWatch Logs
+# Add Role Policy For VPC Flow Logs to write into CloudWatch Logs
 resource "aws_iam_role_policy" "js_vpc_flow_log_policy" {
   name = "js-vpc-flow-log-policy"
   role = aws_iam_role.js_vpc_flow_log_role.id
@@ -236,9 +302,10 @@ resource "aws_iam_role_policy" "js_vpc_flow_log_policy" {
       }
     ]
   })
+
 }
 
-// Create VPC Flow Logs in VPC
+# Create VPC Flow Logs in VPC
 resource "aws_flow_log" "js_vpc_flow_log" {
   vpc_id               = aws_vpc.js_vpc.id
   traffic_type         = "ALL"
@@ -247,15 +314,236 @@ resource "aws_flow_log" "js_vpc_flow_log" {
   iam_role_arn         = aws_iam_role.js_vpc_flow_log_role.arn
 }
 
+data "aws_caller_identity" "current" {}
 
-/*
-  120  aws ec2 describe-flow-logs \\n  --query 'FlowLogs[*].[FlowLogId,FlowLogStatus,LogDestination,DeliverLogsStatus,DeliverLogsErrorMessage]' \\n  --output table
-  121  aws ec2 describe-flow-logs \\n  --flow-log-ids fl-0f836c7594dde306f \\n  --query 'FlowLogs[0]' \\n  --output json
-  122  aws ec2 describe-vpcs \\n  --query 'Vpcs[*].[VpcId,CidrBlock,Tags[?Key==`Name`].Value|[0]]' \\n  --output table
-  123  for i in {1..50}; do\n  curl -s http://44.204.224.176/ > /dev/null\ndone
-  124  terraform state show aws_vpc.js_vpc\n
-  125  aws ec2 describe-instances \\n  --query 'Reservations[*].Instances[*].[InstanceId,VpcId,SubnetId,PrivateIpAddress,PublicIpAddress,State.Name]' \\n  --output table
-  126  curl -I http://44.204.224.176\n
-  127  for i in {1..100}; do\n  curl -s http://44.204.224.176/ > /dev/null\ndone
-  128  ssh ubuntu@44.204.224.176
-*/
+
+/************************************* Create CloudTrail *************************************/
+
+# Create S3 bucket for cloudtrail
+resource "aws_s3_bucket" "js_cloudtrail_s3_bucket" {
+  bucket = "js-security-cloudtrail-081535519482"
+
+  tags = {
+    Name        = "js-cloudtrail-s3-bucket"
+    Environment = "dev"
+    Project     = "Juice Shop Terraform"
+  }
+}
+
+
+# Create public access block for cloudtrail s3 bucket 
+resource "aws_s3_bucket_public_access_block" "js_cloudtrail_s3_bucket_block" {
+  bucket = aws_s3_bucket.js_cloudtrail_s3_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Create bucket policy for the cloudtrail s3 bucket
+resource "aws_s3_bucket_policy" "js_cloudtrail_bucket_policy" {
+  bucket = aws_s3_bucket.js_cloudtrail_s3_bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid    = "AWSCloudTrailAclCheck"
+        Effect = "Allow"
+
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.js_cloudtrail_s3_bucket.arn
+      },
+
+      {
+        Sid    = "AWSCloudTrailWrite"
+        Effect = "Allow"
+
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+
+        Action = "s3:PutObject"
+
+        Resource = "${aws_s3_bucket.js_cloudtrail_s3_bucket.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# Create CloudWatch Log Group for S3 Bucket
+resource "aws_cloudwatch_log_group" "js_cloudtrail_logs" {
+  name              = "/aws/cloudtrail/js-cloudtrail"
+  retention_in_days = 7
+}
+
+# Create IAM Role for Cloudtrail to write into cloudwatch log group 
+resource "aws_iam_role" "js_cloudtrail_cloudwatch_role" {
+  name = "js-cloudtrail-cloudwatch-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "cloudtrail.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Then give permission to the IAM role for cloudtrail to write into cloudwatch log group
+resource "aws_iam_role_policy" "js_cloudtrail_cloudwatch_policy" {
+  role = aws_iam_role.js_cloudtrail_cloudwatch_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ]
+      Resource = "${aws_cloudwatch_log_group.js_cloudtrail_logs.arn}:*"
+    }]
+  })
+}
+
+# Create Cloudtrail
+resource "aws_cloudtrail" "js_cloudtrail" {
+  name                          = "js-cloudtrail"
+  s3_bucket_name                = aws_s3_bucket.js_cloudtrail_s3_bucket.id
+  include_global_service_events = true
+  is_multi_region_trail         = true
+  enable_log_file_validation    = true
+
+  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.js_cloudtrail_logs.arn}:*"
+  cloud_watch_logs_role_arn  = aws_iam_role.js_cloudtrail_cloudwatch_role.arn
+
+  depends_on = [
+    aws_s3_bucket_policy.js_cloudtrail_bucket_policy,
+    aws_iam_role_policy.js_cloudtrail_cloudwatch_policy,
+  ]
+}
+
+
+
+/************************************* Create AWS Config *************************************/
+
+# Create S3 Bucket for AWS Config
+resource "aws_s3_bucket" "js_config_bucket" {
+  bucket = "js-security-config-d81535519482"
+
+  tags = {
+    Name = "js-config-bucket"
+    Environment = "dev"
+    Project = "Juice Shop Terraform"
+  }
+}
+
+# Add Public Access Block to S3 Bucket
+resource "aws_s3_bucket_public_access_block" "js_config_bucket_block" {
+  bucket = aws_s3_bucket.js_config_bucket.id
+  block_public_acls = true
+  block_public_policy = true
+  ignore_public_acls = true
+  restrict_public_buckets = true
+}
+
+# Create bucket policy
+resource "aws_s3_bucket_policy" "js_config_bucket_policy" {
+  bucket = aws_s3_bucket.js_config_bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid = "AWSConfigBucketPermissionCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action = "s3:GetBucketAcl"
+        Resource = "${aws_s3_bucket.js_config_bucket.arn}"
+      },
+      {
+        Sid = "AWSConfigBucketDelivery"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.js_config_bucket.arn}/*"
+        Condition = {
+          StringEquals = {"s3:x-amz-acl" = "bucket-owner-full-control"}
+        }
+      }
+    ]
+  })
+}
+
+# Create IAM Role for AWS Config to read and record configuration of various kinds of AWS services
+resource "aws_iam_role" "js_config_role" {
+  name = "js-config-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+      }
+    ]
+  })
+  tags = {
+    Name = "js-config-role"
+    Environment = "dev"
+    Project = "Juice Shop Terraform"
+  }
+}
+
+# Attach permission to the IAM role created above
+resource "aws_iam_role_policy_attachment" "js_config_role_policy" {
+  role = aws_iam_role.js_config_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
+}
+
+# Create Configuration Recorder
+resource "aws_config_configuration_recorder" "js_recorder" {
+  name = "js-config_recorder"
+  role_arn = aws_iam_role.js_config_role.arn
+
+  recording_group {
+    all_supported = true
+    include_global_resource_types = true
+  }
+}
+
+
+# Create Delivery Channel 
+resource "aws_config_delivery_channel" "js_delivery_channel" {
+  name = "js-config-delivery-channel"
+  s3_bucket_name = aws_s3_bucket.js_config_bucket.bucket
+  depends_on = [ aws_config_configuration_recorder.js_recorder ]
+}
+
+# Start Recorder
+resource "aws_config_configuration_recorder_status" "js_recorder_status" {
+  name = aws_config_configuration_recorder.js_recorder.name
+  is_enabled = true
+  depends_on = [ aws_config_delivery_channel.js_delivery_channel ]
+}
