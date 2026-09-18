@@ -56,7 +56,7 @@ resource "aws_vpc" "js_vpc" {
   tags = {
     Name        = "js-vpc"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
@@ -68,7 +68,7 @@ resource "aws_subnet" "js_public_subnet" {
   tags = {
     Name        = "js-public-subnet"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
@@ -78,7 +78,7 @@ resource "aws_internet_gateway" "js_igw" {
   tags = {
     Name        = "js-igw"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 
 }
@@ -90,7 +90,7 @@ resource "aws_route_table" "js_public_rt" {
   tags = {
     Name        = "js-public-rt"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
@@ -112,7 +112,7 @@ resource "aws_security_group" "js_sg" {
 
   tags = {
     Name        = "js-web-sg"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
     Environment = "dev"
   }
 }
@@ -231,7 +231,7 @@ resource "aws_instance" "js_ubuntu_ec" {
   tags = {
     Name        = "js-ubuntu-ec"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 
 }
@@ -250,7 +250,7 @@ resource "aws_cloudwatch_log_group" "js_vpc_flow_logs_group" {
   tags = {
     Name        = "js-vpc-flow-logs"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
@@ -274,7 +274,7 @@ resource "aws_iam_role" "js_vpc_flow_log_role" {
   tags = {
     Name        = "js-vpc-flow-log-role"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
@@ -326,7 +326,7 @@ resource "aws_s3_bucket" "js_cloudtrail_s3_bucket" {
   tags = {
     Name        = "js-cloudtrail-s3-bucket"
     Environment = "dev"
-    Project     = "Juice Shop Terraform"
+    Project     = "Juice Shop Terraform 1.0"
   }
 }
 
