@@ -3,7 +3,10 @@
 
 This terraform project is used to deploy multiple web security target website into AWS automatically. The commands are listed below:
 ```
-terraform apply -var="target_app=juice_shop"   # 默认
+terraform apply -var="target_app=dvwa"
+terraform apply -var="target_app=webgoat"
+terraform apply -var="target_app=bwapp"
+terraform apply -var="target_app=juice_shop"   # by default
 terraform apply -var="target_app=mutillidae"
 terraform apply -var="target_app=vuln_bank"
 terraform apply -var="target_app=altoroj"

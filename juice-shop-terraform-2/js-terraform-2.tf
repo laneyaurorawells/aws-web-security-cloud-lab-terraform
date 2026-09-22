@@ -6,19 +6,48 @@ variable "target_app" {
     default = "juice_shop"
 
     validation {
-        condition = contains(["juice_shop", "mutillidae", "vuln_bank", "altoroj"], var.target_app)
-        error_message = "target_app must be one of \"juice_shop\", \"mutillidae\", \"vuln_bank\", \"altoroj\""
+        condition = contains(["dvwa", "webgoat", "bwapp", "juice_shop", "mutillidae", "vuln_bank", "altoroj"], var.target_app)
+        error_message = "target_app must be one of \"juice_shop\", \"mutillidae\", \"vuln_bank\", \"altoroj\", \"dvwa\", \"webgoat\", \"bwapp\""    
     }
 }
 
 locals {
     app_options = {
+        webgoat = {
+            deploy_type = "docker_run"
+            docker_image = "webgoat/webgoat"
+            container_port = 8080
+            git_repo = ""
+            health_check_path = "/WebGoat/login"
+            host_port = 80
+            instance_type = "t3.small"
+        }
+        dvwa = {
+            deploy_type = "docker_run"
+            docker_image = "vulnerables/web-dvwa"
+            container_port = 80
+            git_repo = ""
+            health_check_path = "/"
+            host_port = 80
+            instance_type = "t2.micro"
+        }
+        bwapp = {
+            deploy_type = "docker_run"
+            docker_image = "raesene/bwapp"
+            container_port = 80
+            git_repo = ""
+            health_check_path = "/"
+            host_port = 80
+            instance_type = "t2.micro"
+        }
         juice_shop = {
             deploy_type = "docker_run"
             docker_image = "bkimminich/juice-shop"
             container_port = 3000
             git_repo = ""
             health_check_path = "/"
+            host_port = 80
+            instance_type = "t2.micro"
         }
         mutillidae = {
             deploy_type = "docker_run"
@@ -26,6 +55,8 @@ locals {
             container_port = 80
             git_repo = ""
             health_check_path = "/"
+            host_port = 80
+            instance_type = "t3.small"
         }
         vuln_bank = {
             deploy_type = "compose"
@@ -33,6 +64,8 @@ locals {
             container_port = 5000
             git_repo = "https://github.com/Commando-X/vuln-bank.git"
             health_check_path = "/"
+            host_port = 80
+            instance_type = "t2.micro"
         }
         altoroj = {
             deploy_type = "docker_run"
@@ -40,6 +73,8 @@ locals {
             container_port = 8080
             git_repo = ""
             health_check_path = "/altoroj/"
+            host_port = 80
+            instance_type = "t2.micro"
         }
     }
 
@@ -50,6 +85,7 @@ locals {
         docker_image = local.selected_app.docker_image
         container_port = local.selected_app.container_port
         git_repo = local.selected_app.git_repo
+        instance_type = local.selected_app.instance_type
     })
 
     app_host_port = 80
@@ -208,8 +244,8 @@ resource "aws_security_group" "js_sg" {
 resource "aws_vpc_security_group_ingress_rule" "ec2_allow_alb_sg_only" {
     security_group_id = aws_security_group.js_sg.id
     referenced_security_group_id = aws_security_group.js_alb_sg.id
-    from_port = local.app_host_port
-    to_port = local.app_host_port
+    from_port = local.selected_app.host_port
+    to_port = local.selected_app.host_port
     ip_protocol = "tcp"
 }
 
@@ -252,6 +288,11 @@ resource "aws_iam_instance_profile" "js_ec2_ssm_profile" {
   role = aws_iam_role.js_ec2_ssm_role.name
 }
 
+resource "time_sleep" "wait_for_nat" {
+  depends_on      = [aws_nat_gateway.js_ngw]
+  create_duration = "60s"
+}
+
 /************************************* Create EC2 *************************************/
 
 data "aws_ssm_parameter" "amazon_linux" {
@@ -260,7 +301,7 @@ data "aws_ssm_parameter" "amazon_linux" {
 
 resource "aws_instance" "js_ubuntu_ec_1" {
   ami           = data.aws_ssm_parameter.amazon_linux.value
-  instance_type = "t2.micro"
+  instance_type = local.selected_app.instance_type
   vpc_security_group_ids = [
     aws_security_group.js_sg.id
   ]
@@ -280,14 +321,15 @@ user_data = local.user_data_rendered
     Project     = "Juice Shop Terraform 2.0"
   }
  
-    depends_on = [ aws_nat_gateway.js_ngw ]
+    # depends_on = [ aws_nat_gateway.js_ngw ]
+    depends_on = [ time_sleep.wait_for_nat ]
   
 }
 
 
 resource "aws_instance" "js_ubuntu_ec_2" {
   ami           = data.aws_ssm_parameter.amazon_linux.value
-  instance_type = "t2.micro"
+  instance_type = local.selected_app.instance_type
   vpc_security_group_ids = [
     aws_security_group.js_sg.id
   ]
@@ -304,7 +346,8 @@ user_data = local.user_data_rendered
     Project     = "Juice Shop Terraform 2.0"
   }
  
-    depends_on = [ aws_nat_gateway.js_ngw ]
+    # depends_on = [ aws_nat_gateway.js_ngw ]
+    depends_on = [ time_sleep.wait_for_nat ]
   
 }
 
@@ -379,6 +422,7 @@ resource "aws_flow_log" "js_vpc_flow_log" {
 
 resource "aws_s3_bucket" "js_cloudtrail_s3_bucket" {
     bucket = "js-cloudtrail-${data.aws_caller_identity.current.account_id}"
+    force_destroy = true
 
     tags = {
         Name        = "js-cloudtrail-s3-bucket"
@@ -535,13 +579,13 @@ resource "aws_alb" "js_alb" {
 
 resource "aws_lb_target_group" "js_alb_tg" {
     name = "js-tg"
-    port = local.app_host_port
+    port = local.selected_app.host_port
     protocol = "HTTP"
     vpc_id = aws_vpc.js_vpc.id
     target_type = "instance"
 
     health_check {
-      path = "/"
+      path = local.selected_app.health_check_path
       protocol = "HTTP"
       matcher = "200-399"
       interval = 30
@@ -554,13 +598,13 @@ resource "aws_lb_target_group" "js_alb_tg" {
 resource "aws_lb_target_group_attachment" "js_alb_tg_attachment_1" {
     target_group_arn = aws_lb_target_group.js_alb_tg.arn
     target_id = aws_instance.js_ubuntu_ec_1.id
-    port = local.app_host_port
+    port = local.selected_app.host_port
 }
 
 resource "aws_lb_target_group_attachment" "js_alb_tg_attachment_2" {
     target_group_arn = aws_lb_target_group.js_alb_tg.arn
     target_id = aws_instance.js_ubuntu_ec_2.id
-    port = local.app_host_port
+    port = local.selected_app.host_port
 }
 
 resource "aws_lb_listener" "js_alb_listener" {
@@ -707,10 +751,6 @@ resource "aws_cloudfront_distribution" "js_cdn" {
 }
 
 
-
-# output "cloudfront_domain_name" {
-#     value = aws_cloudfront_distribution.js_cdn.domain_name
-# }
 output "deployed_target_app" {
     value = var.target_app
 }
