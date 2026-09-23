@@ -26,6 +26,12 @@ resource "aws_lb_target_group" "js_alb_tg" {
   vpc_id      = aws_vpc.js_vpc.id
   target_type = "instance"
 
+  stickiness {
+    type            = "lb_cookie"
+    cookie_duration = 86400
+    enabled         = true
+  }
+  
   health_check {
     path                = local.selected_app.health_check_path
     protocol            = "HTTP"

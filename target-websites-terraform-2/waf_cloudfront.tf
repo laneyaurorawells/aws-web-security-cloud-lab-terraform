@@ -90,6 +90,7 @@ resource "aws_cloudfront_distribution" "js_cdn" {
     viewer_protocol_policy = "redirect-to-https"
     forwarded_values {
       query_string = true
+      headers = ["Authorization"]
       cookies {
         forward = "all"
       }

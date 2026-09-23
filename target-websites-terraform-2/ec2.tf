@@ -20,6 +20,10 @@ resource "aws_instance" "js_ubuntu_ec_1" {
 
   user_data = local.user_data_rendered
 
+  root_block_device {
+    encrypted = true
+  }
+
   tags = {
     Name        = "${var.target_app}-ec-1"
     Environment = "dev"
@@ -45,6 +49,10 @@ resource "aws_instance" "js_ubuntu_ec_2" {
 
   user_data = local.user_data_rendered
 
+  root_block_device {
+    encrypted = true
+  }
+  
   tags = {
     Name        = "${var.target_app}-ec-2"
     Environment = "dev"
