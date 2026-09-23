@@ -1,19 +1,30 @@
 # AWS Web Security Cloud Terraform Lab 
-
 A hands-on AWS cloud security lab built with **Terraform**, designed to demonstrate practical implementation of AWS security controls, detection capabilities, vulnerability management, logging, monitoring, and secure infrastructure deployment.
 
 The project deploys vulnerable web applications into an AWS environment and surrounds them with multiple layers of cloud and application security controls.
+
+**Terraform configuration location:**
+
+The Terraform configuration files for this project are located in the `/target-websites-terraform-2/` directory.
+
 The commands are listed below:
-```
+
+```bash
 terraform apply -var="target_app=dvwa"
+
 terraform apply -var="target_app=webgoat"
+
 terraform apply -var="target_app=bwapp"
+
 terraform apply -var="target_app=juice_shop"   # by default
+
 terraform apply -var="target_app=mutillidae"
+
 terraform apply -var="target_app=vuln_bank"
+
 terraform apply -var="target_app=altoroj"
 ```
----
+
 
 ## Architecture
 
