@@ -20,4 +20,5 @@ terraform apply -var="target_app=altoroj"
 
 # The architectual graph of js-terraform-2.tf
 
-![alt text](image.png)
+![alt text](terraform_network_architecture_v2.png)
+![alt text](terraform_security_observability.png)
