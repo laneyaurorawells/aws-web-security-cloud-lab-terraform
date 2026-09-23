@@ -1,4 +1,4 @@
-# AWS Cloud Security Lab
+# AWS Web Security Cloud Terraform Lab 
 
 A hands-on AWS cloud security lab built with **Terraform**, designed to demonstrate practical implementation of AWS security controls, detection capabilities, vulnerability management, logging, monitoring, and secure infrastructure deployment.
 
